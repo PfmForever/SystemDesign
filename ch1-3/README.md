@@ -54,6 +54,14 @@ docker compose logs -f app1 app2
 - **PG Master**:     `localhost:5432`  (weather / weatherpwd)
 - **PG Slave (RO)**: `localhost:5433`  (weather / weatherpwd)
 
+重啟單一服務 / 查看日誌:
+
+```bash
+docker compose stop app2
+docker compose start app2
+docker compose logs -f app1 app2
+```
+
 停止與清除:
 
 ```bash
@@ -63,24 +71,41 @@ docker compose down -v       # 連同資料 volumes 一起清除
 
 ---
 
+## 容器連線速查
+
+| 容器             | 連線指令                                                                 | 帳密                          |
+| ---------------- | ------------------------------------------------------------------------ | ----------------------------- |
+| PG Master (讀寫) | `docker exec -it postgres-master psql -U weather -d weatherdb`           | weatherpwd / superuser: postgres_pwd |
+| PG Slave (唯讀)  | `docker exec -it postgres-slave psql -U weather -d weatherdb`            | weatherpwd                    |
+| Redis            | `docker exec -it redis redis-cli`                                        | 無密碼                        |
+| RabbitMQ UI      | `open http://localhost:15672`                                            | guest / guest                 |
+| app1 / app2      | `docker exec -it app1 sh` / `docker exec -it app2 sh`                   | —                             |
+| Nginx            | `docker exec -it nginx sh`                                               | —                             |
+
+---
+
 ## Demo 測試指令
 
 ### 1. Load Balancing — 驗證請求被輪流分發到 app1 / app2
 
 ```bash
-# 連續打 6 次，觀察回應中的 "servedBy" 欄位輪流出現 app1 / app2
-for i in 1 2 3 4 5 6; do
-  curl -s http://localhost/api/weather/Taipei | jq '.servedBy, .cache'
-  echo '---'
+# 連打 100 次，觀察流量被分散
+for i in $(seq 1 100); do
+  curl -s http://localhost/api/weather/Taipei > /dev/null
 done
+
+# 確認 Nginx Response Header 中的 X-Upstream（顯示實際打到哪個 app）
+curl -sI http://localhost/api/weather/Taipei | grep -i x-upstream
 ```
 
 > 由於 Nginx 預設使用 Round Robin，回應會以 `app1 -> app2 -> app1 -> app2 ...` 交替。
 
-另外 Nginx 也會在 Response Header 寫入 `X-Upstream`:
-
 ```bash
-curl -sI http://localhost/api/weather/Taipei | grep -i x-upstream
+# 也可以直接看 servedBy 欄位
+for i in 1 2 3 4 5 6; do
+  curl -s http://localhost/api/weather/Taipei | jq '.servedBy, .cache'
+  echo '---'
+done
 ```
 
 ---
@@ -106,19 +131,22 @@ curl -s http://localhost/api/weather/Tokyo | jq '{city, cache, servedBy}'
 觀察 Redis 內容:
 
 ```bash
-docker exec -it redis redis-cli KEYS 'weather:*'
-docker exec -it redis redis-cli TTL  weather:tokyo   # 初始應 ≈ 3600 秒
+docker exec redis redis-cli KEYS 'weather:*'
+docker exec redis redis-cli TTL weather:tokyo        # 初始應 ≈ 3600 秒
+docker exec redis redis-cli GET weather:taipei       # 查看快取內容
 ```
 
 觀察 PostgreSQL 資料:
 
 ```bash
 # 寫入 Master
-docker exec -it postgres-master psql -U weather -d weatherdb \
+docker exec -e PGPASSWORD=weatherpwd postgres-master \
+  psql -U weather -d weatherdb \
   -c "SELECT city, forecast_date, temperature, description FROM weather_forecast ORDER BY forecast_date;"
 
 # Slave 已複製同樣資料 (READ)
-docker exec -it postgres-slave psql -U weather -d weatherdb \
+docker exec -e PGPASSWORD=weatherpwd postgres-slave \
+  psql -U weather -d weatherdb \
   -c "SELECT COUNT(*) FROM weather_forecast;"
 ```
 
