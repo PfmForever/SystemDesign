@@ -1,0 +1,54 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: weather-api
+
+  datasource:
+    master:
+      jdbc-url: ${MASTER_JDBC_URL:jdbc:postgresql://postgres-master:5432/weatherdb}
+      username: ${DB_USERNAME:weather}
+      password: ${DB_PASSWORD:weatherpwd}
+      driver-class-name: org.postgresql.Driver
+      hikari:
+        pool-name: master-pool
+        maximum-pool-size: 10
+    slave:
+      jdbc-url: ${SLAVE_JDBC_URL:jdbc:postgresql://postgres-slave:5432/weatherdb}
+      username: ${DB_USERNAME:weather}
+      password: ${DB_PASSWORD:weatherpwd}
+      driver-class-name: org.postgresql.Driver
+      hikari:
+        pool-name: slave-pool
+        maximum-pool-size: 10
+        read-only: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+
+  jpa:
+    open-in-view: false
+
+app:
+  # 由 docker-compose 注入容器 hostname，用於 LB Demo 觀察
+  instance-id: ${HOSTNAME:local}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.example.weather: INFO
